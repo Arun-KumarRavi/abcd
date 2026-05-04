@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    tools {
-        nodejs 'node20' 
-    }
-
     environment {
         // ---------------- Docker ----------------
         DOCKER_HUB_USER = 'arunkumarravi08' // PLEASE UPDATE THIS
