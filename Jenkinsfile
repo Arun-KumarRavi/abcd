@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         // ---------------- Docker ----------------
-        DOCKER_HUB_USER = 'your-dockerhub-username' // PLEASE UPDATE THIS
+        DOCKER_HUB_USER = 'arunkumarravi08' // PLEASE UPDATE THIS
         DOCKER_HUB_REPO = 'espocrm'
         IMAGE_TAG = "${BUILD_NUMBER}"
 
@@ -11,7 +11,7 @@ pipeline {
         SCANNER_HOME = '/usr/bin/sonar-scanner' 
 
         // ---------------- AWS / EKS ----------------
-        CLUSTER_NAME = 'devops-eks' // PLEASE UPDATE THIS
+        CLUSTER_NAME = 'espocrm' // PLEASE UPDATE THIS
         REGION = 'us-east-1'        // PLEASE UPDATE THIS
     }
 
