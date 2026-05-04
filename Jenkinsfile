@@ -54,6 +54,7 @@ pipeline {
                 withSonarQubeEnv('SonarQube-Server') {
                     sh '''
                     docker run --rm \
+                      --user $(id -u):$(id -g) \
                       -e SONAR_HOST_URL=${SONAR_HOST_URL} \
                       -e SONAR_TOKEN=${SONAR_AUTH_TOKEN} \
                       -v "${WORKSPACE}:/usr/src" \
@@ -63,8 +64,6 @@ pipeline {
                       -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/** \
                       -Dsonar.login=${SONAR_AUTH_TOKEN}
 
-                    # Fix permissions and copy report to root for Jenkins plugin
-                    sudo chown -R $USER:$USER .scannerwork || true
                     cp .scannerwork/report-task.txt . || echo "report-task.txt not found"
                     '''
                     waitForQualityGate abortPipeline: true
