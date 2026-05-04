@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: espocrm
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: espocrm
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: espocrm
+
+  template:
+    metadata:
+      labels:
+        app: espocrm
+
+    spec:
+      containers:
+        - name: espocrm
+
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

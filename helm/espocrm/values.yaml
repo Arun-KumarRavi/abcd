@@ -1,0 +1,28 @@
+replicaCount: 1
+
+image:
+  repository: arunkumarravi08/espocrm
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 80
+
+containerPort: 80
+
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "1Gi"
+    cpu: "500m"
+
+ingress:
+  enabled: false
+  className: nginx
+  host: espocrm.example.com
+
+namespace: espocrm
