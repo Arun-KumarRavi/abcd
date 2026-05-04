@@ -7,9 +7,6 @@ pipeline {
         DOCKER_HUB_REPO = 'espocrm'
         IMAGE_TAG = "${BUILD_NUMBER}"
 
-        // ---------------- SonarQube ----------------
-        SCANNER_HOME = '/usr/bin/sonar-scanner' 
-
         // ---------------- AWS / EKS ----------------
         CLUSTER_NAME = 'espocrm' // PLEASE UPDATE THIS
         REGION = 'us-east-1'        // PLEASE UPDATE THIS
@@ -55,7 +52,15 @@ pipeline {
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
-                    sh "${SCANNER_HOME} -Dsonar.projectKey=espocrm -Dsonar.sources=."
+                    sh '''
+                    docker run --rm \
+                      -e SONAR_HOST_URL=${SONAR_HOST_URL} \
+                      -e SONAR_LOGIN=${SONAR_AUTH_TOKEN} \
+                      -v "${WORKSPACE}:/usr/src" \
+                      sonarsource/sonar-scanner-cli \
+                      -Dsonar.projectKey=espocrm \
+                      -Dsonar.sources=.
+                    '''
                 }
             }
         }
