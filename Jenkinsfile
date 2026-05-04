@@ -62,7 +62,8 @@ pipeline {
                       -Dsonar.projectKey=espocrm \
                       -Dsonar.sources=. \
                       -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/** \
-                      -Dsonar.login=${SONAR_AUTH_TOKEN}
+                      -Dsonar.login=${SONAR_AUTH_TOKEN} \
+                      -Dsonar.userHome=/usr/src/.sonar
 
                     cp .scannerwork/report-task.txt . || echo "report-task.txt not found"
                     '''
