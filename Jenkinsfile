@@ -124,11 +124,17 @@ pipeline {
                 withCredentials([aws(credentialsId: 'aws-creds', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh '''
                     aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}
+                    # Deploy using Helm from the local helm directory
                     helm upgrade --install espocrm ./helm/espocrm \
                     --namespace espocrm --create-namespace \
                     --set image.repository=${DOCKER_HUB_USER}/${DOCKER_HUB_REPO} \
                     --set image.tag=${IMAGE_TAG} \
                     --wait
+
+                    echo "------------------------------------------------"
+                    echo "EspoCRM URL:"
+                    kubectl get svc -n espocrm espocrm-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "URL Pending..."
+                    echo -e "\n------------------------------------------------"
                     '''
                 }
             }
@@ -142,7 +148,12 @@ pipeline {
 
         stage('Grafana Visualization') {
             steps {
-                sh "kubectl get svc -n monitoring prometheus-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo 'Grafana URL Pending...'"
+                sh '''
+                echo "------------------------------------------------"
+                echo "Grafana URL:"
+                kubectl get svc -n monitoring prometheus-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "URL Pending..."
+                echo "\n------------------------------------------------"
+                '''
             }
         }
 
