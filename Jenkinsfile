@@ -49,7 +49,7 @@ pipeline {
             }
         }
 
-        stage('SonarQube Scan') {
+        stage('SonarQube Scan & Quality Gate') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
                     sh '''
@@ -63,13 +63,8 @@ pipeline {
                       -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/** \
                       -Dsonar.login=${SONAR_AUTH_TOKEN}
                     '''
+                    waitForQualityGate abortPipeline: true
                 }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                waitForQualityGate abortPipeline: true
             }
         }
 
