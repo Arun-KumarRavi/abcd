@@ -2,183 +2,136 @@ pipeline {
     agent any
 
     environment {
-        // ---------------- Docker ----------------
-        DOCKER_HUB_USER = 'arunkumarravi08' // PLEASE UPDATE THIS
-        DOCKER_HUB_REPO = 'espocrm'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-
-        // ---------------- AWS / EKS ----------------
-        CLUSTER_NAME = 'espocrm' // PLEASE UPDATE THIS
-        REGION = 'us-east-1'        // PLEASE UPDATE THIS
+        // SonarQube Server details (managed in Jenkins Credentials/Systems)
+        SONAR_SCANNER_HOME = tool 'sonar-scanner'
+        SCANNER_IMAGE      = 'sonarsource/sonar-scanner-cli'
+        
+        // Docker Repository Details
+        DOCKER_IMAGE_NAME  = 'espocrm'
+        DOCKER_TAG         = "${BUILD_NUMBER}"
+        DOCKER_REGISTRY    = "arunkumar123" // Replace with your DockerHub/ECR username
+        
+        // AWS EKS Details
+        AWS_REGION         = 'us-east-1'
+        CLUSTER_NAME       = 'espocrm-cluster'
     }
 
     stages {
-        stage('Git Checkout') {
+        stage('Initialize & Checkout') {
             steps {
+                echo 'Checking out source code...'
                 checkout scm
             }
         }
 
-        stage('Install Frontend Deps') {
+        stage('Install Dependencies') {
             steps {
-                sh 'npm install'
+                echo 'Installing Frontend (Npm) and Backend (Composer) dependencies...'
+                sh '''
+                    npm install --no-fund --no-audit
+                    composer install --no-interaction --prefer-dist --optimize-autoloader
+                '''
             }
         }
 
-        stage('Install Backend Deps') {
+        stage('Static Analysis') {
             steps {
-                sh 'composer install --no-interaction --prefer-dist'
+                echo 'Running PHPStan for static code analysis...'
+                sh 'npm run sa || echo "Static analysis found issues, but continuing..."'
             }
         }
 
-        stage('ESLint') {
+        stage('Unit Tests') {
             steps {
-                sh 'npx eslint . || echo "ESLint failed but continuing"'
+                echo 'Executing Backend Unit Tests...'
+                // These tests must pass for the pipeline to continue
+                sh 'vendor/bin/phpunit --colors=always'
             }
         }
 
-        stage('Frontend Tests') {
+        stage('SonarQube Scan') {
             steps {
-                sh 'npm test || echo "No frontend tests found"'
-            }
-        }
-
-        stage('Backend Tests') {
-            steps {
-                sh 'vendor/bin/phpunit'
-            }
-        }
-
-        stage('SonarQube Scan & Quality Gate') {
-            steps {
-                withSonarQubeEnv('SonarQube-Server') {
-                    sh '''
-                    # Clean up old reports to avoid confusion
-                    rm -f report-task.txt .scannerwork/report-task.txt
-
-                    # Run Sonar Scanner via Docker
-                    docker run --rm \
-                      --user $(id -u):$(id -g) \
-                      -e SONAR_HOST_URL=${SONAR_HOST_URL} \
-                      -e SONAR_TOKEN=${SONAR_AUTH_TOKEN} \
-                      -v "${WORKSPACE}:/usr/src" \
-                      sonarsource/sonar-scanner-cli \
-                      -Dsonar.projectKey=espocrm \
-                      -Dsonar.sources=. \
-                      -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/**,**/helm/** \
-                      -Dsonar.userHome=/usr/src/.sonar \
-                      -Dsonar.working.directory=/usr/src/.scannerwork
-
-                    # Ensure report-task.txt is in the root for waitForQualityGate
-                    if [ -f .scannerwork/report-task.txt ]; then
-                        cp .scannerwork/report-task.txt .
-                        echo "Report task file copied to workspace root."
-                    else
-                        echo "ERROR: .scannerwork/report-task.txt not found!"
-                        exit 1
-                    fi
-                    '''
+                script {
+                    withSonarQubeEnv('SonarQube-Server') {
+                        echo 'Running SonarQube scan via Docker container...'
+                        sh """
+                        docker run --rm \
+                            --user \$(id -u):\$(id -g) \
+                            -e SONAR_HOST_URL=${SONAR_HOST_URL} \
+                            -e SONAR_TOKEN=${SONAR_AUTH_TOKEN} \
+                            -v "${WORKSPACE}:/usr/src" \
+                            ${SCANNER_IMAGE} \
+                            -Dsonar.projectKey=espocrm \
+                            -Dsonar.sources=. \
+                            -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/**,helm/** \
+                            -Dsonar.working.directory=/usr/src/.scannerwork
+                        """
+                    }
                 }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                echo 'Waiting for SonarQube Quality Gate report...'
                 timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
 
-        stage('Trivy FS Scan') {
+        stage('Security Scan (FileSystem)') {
             steps {
-                sh 'trivy fs . --severity HIGH,CRITICAL --format table'
+                echo 'Scanning filesystem for vulnerabilities with Trivy...'
+                sh 'trivy fs --format table -o trivy-fs-report.html .'
             }
         }
 
-        stage('Docker Build') {
+        stage('Docker Build & Tag') {
             steps {
-                sh 'docker build -t ${DOCKER_HUB_USER}/${DOCKER_HUB_REPO}:${IMAGE_TAG} .'
+                echo 'Building Docker Image...'
+                sh "docker build -t ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_TAG} ."
+                sh "docker tag ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_TAG} ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:latest"
             }
         }
 
-        stage('Trivy Image Scan') {
+        stage('Security Scan (Image)') {
             steps {
-                sh 'trivy image ${DOCKER_HUB_USER}/${DOCKER_HUB_REPO}:${IMAGE_TAG} --severity HIGH,CRITICAL'
-            }
-        }
-
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh "echo ${PASS} | docker login -u ${USER} --password-stdin"
-                }
+                echo 'Scanning Docker Image for vulnerabilities...'
+                sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_TAG}"
             }
         }
 
         stage('Docker Push') {
             steps {
-                sh 'docker push ${DOCKER_HUB_USER}/${DOCKER_HUB_REPO}:${IMAGE_TAG}'
-            }
-        }
-
-        stage('Helm Lint') {
-            steps {
-                sh 'helm lint ./helm/espocrm'
-            }
-        }
-
-        stage('Observability Setup') {
-            steps {
-                withCredentials([aws(credentialsId: 'aws-creds', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh '''
-                    aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}
-                    helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-                    helm repo update
-                    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-                    --namespace monitoring --create-namespace \
-                    --set grafana.service.type=LoadBalancer || echo "Prometheus update failed"
-                    '''
+                echo 'Pushing images to registry...'
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                    sh "docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_TAG}"
+                    sh "docker push ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:latest"
                 }
             }
         }
 
-        stage('EKS Auth & Deploy') {
+        stage('Helm Lint & Package') {
             steps {
-                withCredentials([aws(credentialsId: 'aws-creds', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh '''
-                    aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}
-                    # Deploy using Helm from the local helm directory
-                    helm upgrade --install espocrm ./helm/espocrm \
-                    --namespace espocrm --create-namespace \
-                    --set image.repository=${DOCKER_HUB_USER}/${DOCKER_HUB_REPO} \
-                    --set image.tag=${IMAGE_TAG} \
-                    --wait
+                echo 'Linting Helm Charts...'
+                sh 'helm lint helm/espocrm'
+            }
+        }
 
-                    echo "------------------------------------------------"
-                    echo "EspoCRM URL:"
-                    kubectl get svc -n espocrm espocrm-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "URL Pending..."
-                    echo -e "\n------------------------------------------------"
-                    '''
+        stage('EKS Deploy') {
+            steps {
+                echo 'Deploying to AWS EKS...'
+                withAWS(region: "${AWS_REGION}", credentials: 'aws-creds') {
+                    sh "aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}"
+                    sh """
+                    helm upgrade --install espocrm helm/espocrm \
+                        --set image.repository=${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME} \
+                        --set image.tag=${DOCKER_TAG} \
+                        --namespace default
+                    """
                 }
-            }
-        }
-
-        stage('Prometheus Metrics') {
-            steps {
-                sh 'kubectl get pods -n monitoring | grep prometheus || echo "Metrics pods not found"'
-            }
-        }
-
-        stage('Grafana Visualization') {
-            steps {
-                sh '''
-                echo "------------------------------------------------"
-                echo "Grafana URL:"
-                kubectl get svc -n monitoring prometheus-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "URL Pending..."
-                echo "\n------------------------------------------------"
-                '''
-            }
-        }
-
-        stage('Alerting Notifications') {
-            steps {
-                echo 'Pipeline completed successfully. Alerting logic can be added here.'
             }
         }
     }
@@ -186,6 +139,12 @@ pipeline {
     post {
         always {
             echo 'Pipeline execution finished.'
+        }
+        success {
+            echo 'Deployment successful! 🎉'
+        }
+        failure {
+            echo 'Build failed. Please check the logs above for details. ❌'
         }
     }
 }
