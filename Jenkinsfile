@@ -45,7 +45,7 @@ pipeline {
 
         stage('Backend Tests') {
             steps {
-                sh 'vendor/bin/phpunit || echo "No backend tests found"'
+                sh 'vendor/bin/phpunit'
             }
         }
 
@@ -53,6 +53,9 @@ pipeline {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
                     sh '''
+                    # Clean up old reports to avoid confusion
+                    rm -f report-task.txt .scannerwork/report-task.txt
+
                     # Run Sonar Scanner via Docker
                     docker run --rm \
                       --user $(id -u):$(id -g) \
@@ -62,17 +65,21 @@ pipeline {
                       sonarsource/sonar-scanner-cli \
                       -Dsonar.projectKey=espocrm \
                       -Dsonar.sources=. \
-                      -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/** \
+                      -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/**,**/helm/** \
                       -Dsonar.userHome=/usr/src/.sonar \
                       -Dsonar.working.directory=/usr/src/.scannerwork
 
                     # Ensure report-task.txt is in the root for waitForQualityGate
                     if [ -f .scannerwork/report-task.txt ]; then
                         cp .scannerwork/report-task.txt .
+                        echo "Report task file copied to workspace root."
                     else
-                        echo "WARNING: .scannerwork/report-task.txt not found!"
+                        echo "ERROR: .scannerwork/report-task.txt not found!"
+                        exit 1
                     fi
                     '''
+                }
+                timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
