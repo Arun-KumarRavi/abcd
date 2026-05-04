@@ -53,6 +53,7 @@ pipeline {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
                     sh '''
+                    # Run Sonar Scanner via Docker
                     docker run --rm \
                       --user $(id -u):$(id -g) \
                       -e SONAR_HOST_URL=${SONAR_HOST_URL} \
@@ -62,10 +63,15 @@ pipeline {
                       -Dsonar.projectKey=espocrm \
                       -Dsonar.sources=. \
                       -Dsonar.exclusions=**/node_modules/**,**/vendor/**,**/tests/** \
-                      -Dsonar.login=${SONAR_AUTH_TOKEN} \
-                      -Dsonar.userHome=/usr/src/.sonar
+                      -Dsonar.userHome=/usr/src/.sonar \
+                      -Dsonar.working.directory=/usr/src/.scannerwork
 
-                    cp .scannerwork/report-task.txt . || echo "report-task.txt not found"
+                    # Ensure report-task.txt is in the root for waitForQualityGate
+                    if [ -f .scannerwork/report-task.txt ]; then
+                        cp .scannerwork/report-task.txt .
+                    else
+                        echo "WARNING: .scannerwork/report-task.txt not found!"
+                    fi
                     '''
                     waitForQualityGate abortPipeline: true
                 }

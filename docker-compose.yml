@@ -4,7 +4,7 @@ services:
   espocrm:
     build: .
     ports:
-      - "8081:80"
+      - "8085:80"
     environment:
       - ESPOCRM_DATABASE_HOST=db
       - ESPOCRM_DATABASE_USER=espocrm
